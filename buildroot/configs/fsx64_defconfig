@@ -22,6 +22,9 @@ BR2_ROOTFS_OVERLAY="board/fos-next/rootfs_overlay"
 BR2_TARGET_ROOTFS_CPIO=y
 BR2_TARGET_ROOTFS_CPIO_XZ=y
 
+# Kernel headers — must match the kernel version being built
+BR2_KERNEL_HEADERS_AS_KERNEL=y
+
 # Kernel
 BR2_LINUX_KERNEL=y
 BR2_LINUX_KERNEL_CUSTOM_VERSION=y
