@@ -12,8 +12,8 @@
 
 set -euo pipefail
 
-BUILDROOT_VERSION="2025.02.4"
-KERNEL_VERSION="6.12.35"
+BUILDROOT_VERSION="2026.02"
+KERNEL_VERSION="6.18.22"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_PATH="${SCRIPT_DIR}/build"
@@ -41,8 +41,8 @@ Outputs written to <build_path>/images/:
   rootfs.cpio.xz  — compressed initramfs (installed as init.xz by CI)
 
 Environment:
-  BUILDROOT_VERSION   Override Buildroot version (default: 2025.02.4)
-  KERNEL_VERSION      Override Linux version (default: 6.12.35)
+  BUILDROOT_VERSION   Override Buildroot version (default: 2026.02)
+  KERNEL_VERSION      Override Linux version (default: 6.18.22)
 EOF
     exit 0
 }

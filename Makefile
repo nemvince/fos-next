@@ -1,5 +1,5 @@
-BUILDROOT_VERSION ?= 2025.02.4
-KERNEL_VERSION    ?= 6.12.35
+BUILDROOT_VERSION ?= 2026.02
+KERNEL_VERSION    ?= 6.18.22
 
 .PHONY: all build kernel fs clean test
 
