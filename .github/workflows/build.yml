@@ -46,7 +46,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential gcc g++ make cmake \
-            libncurses-dev libssl-dev \
+            libncurses-dev libssl-dev libelf-dev \
             bc bison flex rsync cpio unzip \
             wget curl git file
 
