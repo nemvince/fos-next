@@ -1,0 +1,114 @@
+name: Build fos-next
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+env:
+  BUILDROOT_VERSION: "2025.02.4"
+  KERNEL_VERSION: "6.12.35"
+
+jobs:
+  agent-test:
+    name: fos-agent unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      - name: Run tests
+        working-directory: agent
+        run: go test ./...
+
+      - name: Build agent (verify compilation)
+        working-directory: agent
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+          go build -ldflags="-s -w" -o /tmp/fos-agent ./cmd/fos-agent
+          ls -lh /tmp/fos-agent
+
+  buildroot:
+    name: Buildroot x86_64
+    runs-on: ubuntu-24.04
+    needs: agent-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential gcc g++ make cmake \
+            libncurses-dev libssl-dev \
+            bc bison flex rsync cpio unzip \
+            wget curl git file
+
+      - name: Set up Go (for fos-agent cross-build inside Buildroot)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      - name: Cache Buildroot downloads
+        uses: actions/cache@v4
+        with:
+          path: build/dl
+          key: buildroot-dl-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig') }}
+          restore-keys: |
+            buildroot-dl-${{ env.BUILDROOT_VERSION }}-
+
+      - name: Cache Buildroot ccache
+        uses: actions/cache@v4
+        with:
+          path: build/ccache
+          key: buildroot-ccache-${{ env.BUILDROOT_VERSION }}-x86_64-${{ github.sha }}
+          restore-keys: |
+            buildroot-ccache-${{ env.BUILDROOT_VERSION }}-x86_64-
+
+      - name: Build (non-interactive)
+        run: ./build.sh -n
+
+      - name: Show artifact sizes
+        run: ls -lh images/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fos-next-x86_64
+          path: |
+            images/bzImage
+            images/init.xz
+            images/sha256sums
+          retention-days: 30
+
+  release:
+    name: Publish Release
+    runs-on: ubuntu-24.04
+    needs: buildroot
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: fos-next-x86_64
+          path: release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/bzImage
+            release/init.xz
+            release/sha256sums
+          generate_release_notes: true

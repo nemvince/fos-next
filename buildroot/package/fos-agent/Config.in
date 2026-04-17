@@ -1,0 +1,25 @@
+config BR2_PACKAGE_FOS_AGENT
+	bool "fos-agent"
+	depends on BR2_x86_64
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  fos-agent is the PID 1 imaging agent for the fos-next initramfs.
+	  It communicates with fog-next's boot API to register hosts,
+	  deploy images, capture images, and perform disk wipes.
+
+	  https://github.com/nemvince/fos-next
+
+if BR2_PACKAGE_FOS_AGENT
+
+config BR2_PACKAGE_FOS_AGENT_VERSION
+	string "fos-agent source version/tag"
+	default "main"
+
+config BR2_PACKAGE_FOS_AGENT_SITE
+	string "fos-agent source path (local)"
+	default "$(BR2_EXTERNAL)/../../agent"
+	help
+	  Path to the agent Go module source tree.
+	  Defaults to the sibling agent/ directory inside the fos-next repo.
+
+endif

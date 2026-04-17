@@ -1,0 +1,17 @@
+#!/bin/sh
+# S20network — bring up the loopback interface only.
+# All other NIC configuration is handled by fos-agent (udhcpc per-interface).
+
+case "$1" in
+  start)
+    ip link set lo up
+    ip addr add 127.0.0.1/8 dev lo
+    ;;
+  stop)
+    ip link set lo down
+    ;;
+  *)
+    echo "Usage: $0 {start|stop}"
+    exit 1
+    ;;
+esac

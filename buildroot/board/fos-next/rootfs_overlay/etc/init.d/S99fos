@@ -1,0 +1,17 @@
+#!/bin/sh
+# S99fos — launch fos-agent as the final init step.
+# fos-agent is responsible for network bringup, handshake, and imaging.
+
+case "$1" in
+  start)
+    echo "Starting fos-agent..."
+    exec /sbin/fos-agent
+    ;;
+  stop)
+    # fos-agent will poweroff/reboot itself when tasks complete.
+    ;;
+  *)
+    echo "Usage: $0 {start|stop}"
+    exit 1
+    ;;
+esac
