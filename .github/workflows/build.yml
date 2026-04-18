@@ -58,6 +58,12 @@ jobs:
           cache-dependency-path: agent/go.sum
 
 
+      - name: Cache Buildroot source tree
+        uses: actions/cache@v5
+        with:
+          path: build/buildroot-${{ env.BUILDROOT_VERSION }}
+          key: buildroot-src-${{ env.BUILDROOT_VERSION }}
+
       - name: Cache Buildroot downloads
         uses: actions/cache@v5
         with:
@@ -65,6 +71,30 @@ jobs:
           key: buildroot-dl-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig') }}
           restore-keys: |
             buildroot-dl-${{ env.BUILDROOT_VERSION }}-
+
+      # The host toolchain (cross-gcc, binutils, musl) is the single most
+      # expensive part of the build (~15-20 min). Key it on the Buildroot
+      # version, kernel version, and the defconfig so it is only invalidated
+      # when the toolchain configuration actually changes.
+      - name: Cache Buildroot host toolchain
+        uses: actions/cache@v5
+        with:
+          path: build/output/host
+          key: buildroot-host-${{ env.BUILDROOT_VERSION }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig') }}
+          restore-keys: |
+            buildroot-host-${{ env.BUILDROOT_VERSION }}-${{ env.KERNEL_VERSION }}-
+
+      # Per-package build directories. Restored from the closest prior run so
+      # only changed packages need to be rebuilt. Saved with a sha-suffixed key
+      # so each successful build produces a fresh snapshot.
+      - name: Cache Buildroot package builds
+        uses: actions/cache@v5
+        with:
+          path: build/output/build
+          key: buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig', 'buildroot/package/**') }}-${{ github.sha }}
+          restore-keys: |
+            buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig', 'buildroot/package/**') }}-
+            buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-
 
       - name: Cache Buildroot ccache
         uses: actions/cache@v5
