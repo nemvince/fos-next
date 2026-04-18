@@ -53,7 +53,7 @@ jobs:
       - name: Set up Go (for fos-agent cross-build inside Buildroot)
         uses: actions/setup-go@v5
         with:
-          go-version-file: agent/go.mod
+          check-latest: true
           cache-dependency-path: agent/go.sum
 
       - name: Cache Buildroot downloads
