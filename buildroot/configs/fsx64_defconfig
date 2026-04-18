@@ -40,6 +40,9 @@ BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
 
 # ── Core packages ────────────────────────────────────────────────────────────
 
+# OpenSSL (for partclone)
+BR2_PACKAGE_OPENSSL=y
+
 # BusyBox (shell + core utils)
 BR2_PACKAGE_BUSYBOX=y
 
