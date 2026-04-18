@@ -18,10 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
+          go-version-file: go.mod
 
       - name: Run tests
         working-directory: agent
@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: agent-test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install build dependencies
         run: |
@@ -51,13 +51,12 @@ jobs:
             wget curl git file
 
       - name: Set up Go (for fos-agent cross-build inside Buildroot)
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          check-latest: true
-          cache-dependency-path: agent/go.sum
+          go-version-file: go.mod
 
       - name: Cache Buildroot downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/dl
           key: buildroot-dl-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig') }}
@@ -65,7 +64,7 @@ jobs:
             buildroot-dl-${{ env.BUILDROOT_VERSION }}-
 
       - name: Cache Buildroot ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/ccache
           key: buildroot-ccache-${{ env.BUILDROOT_VERSION }}-x86_64-${{ github.sha }}
@@ -75,11 +74,8 @@ jobs:
       - name: Build (non-interactive)
         run: ./build.sh -n
 
-      - name: Show artifact sizes
-        run: ls -lh images/
-
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fos-next-x86_64
           path: |
@@ -96,10 +92,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: fos-next-x86_64
           path: release/
