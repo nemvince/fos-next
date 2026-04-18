@@ -1,2 +1,3 @@
 # Top-level Config.in for the fos-next external tree.
 source "$BR2_EXTERNAL_FOS_NEXT_PATH/package/fos-agent/Config.in"
+source "$BR2_EXTERNAL_FOS_NEXT_PATH/package/partclone/Config.in"

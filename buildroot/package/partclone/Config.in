@@ -1,0 +1,12 @@
+config BR2_PACKAGE_PARTCLONE
+	bool "partclone"
+	depends on BR2_USE_WCHAR
+	help
+	  Partclone — partition imaging and cloning tool.
+	  Provides partclone.ext4, partclone.ntfs, partclone.fat,
+	  partclone.xfs, partclone.btrfs and partclone.dd.
+
+	  http://partclone.org
+
+comment "partclone requires a toolchain with WCHAR support"
+	depends on !BR2_USE_WCHAR
