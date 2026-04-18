@@ -49,7 +49,7 @@ jobs:
             build-essential gcc g++ make cmake \
             libncurses-dev libssl-dev libelf-dev \
             bc bison flex rsync cpio unzip \
-            wget curl git file
+            wget curl git file ccache
 
       - name: Set up Go (for fos-agent cross-build inside Buildroot)
         uses: actions/setup-go@v6

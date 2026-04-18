@@ -71,6 +71,10 @@ BR2_PACKAGE_DROPBEAR=y
 # fos-agent (the PID 1 imaging agent)
 BR2_PACKAGE_FOS_AGENT=y
 
+# caching
+BR2_CCACHE=y
+BR2_CCACHE_USE_BASEDIR=y
+
 # ── Explicitly excluded ───────────────────────────────────────────────────────
 # nfs-utils — dropped: HTTP replaces NFS for image transfers
 # partimage  — superseded by partclone

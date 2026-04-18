@@ -114,6 +114,7 @@ make -C "${BUILDROOT_DIR}" \
     O="${O}" \
     BR2_EXTERNAL="${BR2_EXTERNAL}" \
     BR2_DL_DIR="${BUILD_PATH}/dl" \
+    BR2_CCACHE_DIR="${BUILD_PATH}/ccache" \
     "${TARGETS[@]}"
 
 # ── Collect outputs ───────────────────────────────────────────────────────────
