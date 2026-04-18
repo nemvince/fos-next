@@ -4,8 +4,8 @@ package partition
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
-	"strings"
 )
 
 // TableType represents the partition table format.
@@ -21,9 +21,19 @@ const (
 // 512-byte MBR template.
 func Restore(disk string, table []byte) error {
 	slog.Info("restoring partition table", "disk", disk)
-	cmd := exec.Command("sgdisk", "--load-backup=/dev/stdin", disk)
-	cmd.Stdin = strings.NewReader(string(table))
-	out, err := cmd.CombinedOutput()
+	// sgdisk --load-backup requires a seekable file; /dev/stdin is not
+	// guaranteed to exist in devtmpfs initramfs environments.
+	tmp, err := os.CreateTemp("", "sgdisk-restore-*")
+	if err != nil {
+		return fmt.Errorf("sgdisk restore: create temp file: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(table); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sgdisk restore: write temp file: %w", err)
+	}
+	tmp.Close()
+	out, err := exec.Command("sgdisk", "--load-backup="+tmp.Name(), disk).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("sgdisk restore: %w\n%s", err, out)
 	}
@@ -33,12 +43,23 @@ func Restore(disk string, table []byte) error {
 // Backup dumps the partition table from disk to bytes using sgdisk.
 func Backup(disk string) ([]byte, error) {
 	slog.Info("backing up partition table", "disk", disk)
-	cmd := exec.Command("sgdisk", "--backup=/dev/stdout", disk)
-	out, err := cmd.Output()
+	// sgdisk --backup requires a seekable file path; /dev/stdout is not
+	// guaranteed to exist in devtmpfs initramfs environments.
+	tmp, err := os.CreateTemp("", "sgdisk-backup-*")
 	if err != nil {
-		return nil, fmt.Errorf("sgdisk backup: %w", err)
+		return nil, fmt.Errorf("sgdisk backup: create temp file: %w", err)
 	}
-	return out, nil
+	tmpName := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpName)
+	if out, err := exec.Command("sgdisk", "--backup="+tmpName, disk).CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("sgdisk backup: %w\n%s", err, out)
+	}
+	data, err := os.ReadFile(tmpName)
+	if err != nil {
+		return nil, fmt.Errorf("sgdisk backup: read temp file: %w", err)
+	}
+	return data, nil
 }
 
 // ExpandLast resizes the last partition on the disk to fill all available space.

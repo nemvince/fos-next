@@ -47,6 +47,7 @@ BR2_PACKAGE_PARTCLONE=y
 
 # Partition management
 BR2_PACKAGE_PARTED=y
+BR2_PACKAGE_POPT=y
 BR2_PACKAGE_GPT_FDISK=y
 
 # Filesystems

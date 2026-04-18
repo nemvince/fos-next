@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 
 	fogapi "github.com/nemvince/fos-next/internal/api"
@@ -140,11 +142,12 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 	parts := discoverPartitions(disk)
 	for i, dev := range parts {
 		partNum := i + 1
-		slog.Info("capturing partition", "part", partNum, "device", dev)
+		fs := detectFilesystem(dev)
+		slog.Info("capturing partition", "part", partNum, "device", dev, "fs", fs)
 		pr, pw := syncPipe()
 		errCh := make(chan error, 1)
 		go func() {
-			err := imaging.Clone(ctx, dev, "ext4", pw, nil)
+			err := imaging.Clone(ctx, dev, fs, pw, nil)
 			pw.CloseWithError(err)
 			errCh <- err
 		}()
@@ -227,9 +230,9 @@ func primaryDisk() string {
 func partitionDevice(disk string, num int) string {
 	// nvme0n1 uses p-suffix: nvme0n1p1
 	if len(disk) > 4 && disk[len(disk)-2] == 'n' {
-		return disk + "p" + string(rune('0'+num))
+		return disk + "p" + strconv.Itoa(num)
 	}
-	return disk + string(rune('0'+num))
+	return disk + strconv.Itoa(num)
 }
 
 func discoverPartitions(disk string) []string {
@@ -241,6 +244,19 @@ func discoverPartitions(disk string) []string {
 		}
 	}
 	return parts
+}
+
+// detectFilesystem uses blkid to determine the filesystem type of a partition.
+// Falls back to "dd" (raw block copy) if blkid fails or returns an unknown type.
+func detectFilesystem(dev string) string {
+	out, err := exec.Command("blkid", "-s", "TYPE", "-o", "value", dev).Output()
+	if err != nil {
+		slog.Warn("blkid failed, falling back to dd", "dev", dev, "err", err)
+		return "dd"
+	}
+	fs := strings.TrimSpace(string(out))
+	slog.Info("detected filesystem", "dev", dev, "fs", fs)
+	return fs
 }
 
 func printDebugBanner(resp *fogapi.HandshakeResponse) {
