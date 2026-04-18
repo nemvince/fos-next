@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	fogapi "github.com/nemvince/fos-next/internal/api"
 	"github.com/nemvince/fos-next/internal/actions"
+	fogapi "github.com/nemvince/fos-next/internal/api"
 	"github.com/nemvince/fos-next/internal/cmdline"
 	"github.com/nemvince/fos-next/internal/netup"
 )
@@ -87,6 +87,10 @@ func main() {
 // setupLogging configures slog to write to /dev/kmsg so messages appear in
 // dmesg and over serial console.  Falls back to stderr if kmsg is unavailable.
 func setupLogging() {
+	// Disable the kernel printk rate limiter so fos-agent log lines are never
+	// suppressed during long imaging sessions.
+	_ = os.WriteFile("/proc/sys/kernel/printk_ratelimit", []byte("0"), 0)
+
 	kmsg, err := os.OpenFile("/dev/kmsg", os.O_WRONLY, 0)
 	if err != nil {
 		// Running outside initramfs (e.g. CI / unit tests) — use stderr.
