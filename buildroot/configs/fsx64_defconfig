@@ -7,6 +7,7 @@ BR2_x86_nocona=y
 
 # Toolchain — use musl for a smaller rootfs
 BR2_TOOLCHAIN_BUILDROOT_MUSL=y
+BR2_TOOLCHAIN_BUILDROOT_CXX=y
 
 # System
 BR2_TARGET_GENERIC_HOSTNAME="fogclient.localdomain"
@@ -47,8 +48,8 @@ BR2_PACKAGE_PARTCLONE=y
 
 # Partition management
 BR2_PACKAGE_PARTED=y
-BR2_PACKAGE_POPT=y
-BR2_PACKAGE_GPT_FDISK=y
+BR2_PACKAGE_GPTFDISK=y
+BR2_PACKAGE_GPTFDISK_SGDISK=y
 
 # Filesystems
 BR2_PACKAGE_NTFS_3G=y
