@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: agent/go.mod
 
       - name: Run tests
         working-directory: agent
@@ -53,7 +53,7 @@ jobs:
       - name: Set up Go (for fos-agent cross-build inside Buildroot)
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: agent/go.mod
 
       - name: Cache Buildroot downloads
         uses: actions/cache@v5
