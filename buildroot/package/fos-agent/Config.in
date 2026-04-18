@@ -17,7 +17,7 @@ config BR2_PACKAGE_FOS_AGENT_VERSION
 
 config BR2_PACKAGE_FOS_AGENT_SITE
 	string "fos-agent source path (local)"
-	default "$(BR2_EXTERNAL)/../agent"
+	default "$(BR2_EXTERNAL_FOS_NEXT_PATH)/../agent"
 	help
 	  Path to the agent Go module source tree.
 	  Defaults to the sibling agent/ directory inside the fos-next repo.

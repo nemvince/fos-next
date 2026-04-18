@@ -13,6 +13,7 @@ FOS_AGENT_SITE_METHOD = local
 
 FOS_AGENT_LICENSE           = GPL-3.0
 FOS_AGENT_LICENSE_FILES     = LICENSE
+FOS_AGENT_DEPENDENCIES      = host-go
 
 # Go cross-compilation uses the host Go toolchain with GOOS/GOARCH set.
 FOS_AGENT_GOARCH      = amd64
