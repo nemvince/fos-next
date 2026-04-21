@@ -9,7 +9,7 @@ PARTCLONE_SOURCE = partclone-$(PARTCLONE_VERSION).tar.gz
 PARTCLONE_SITE = $(call github,Thomas-Tsai,partclone,$(PARTCLONE_VERSION))
 PARTCLONE_INSTALL_STAGING = YES
 PARTCLONE_AUTORECONF = YES
-PARTCLONE_DEPENDENCIES = host-pkgconf host-gettext util-linux e2fsprogs liburcu
+PARTCLONE_DEPENDENCIES = host-pkgconf host-gettext util-linux e2fsprogs liburcu zlib zstd
 PARTCLONE_CONF_OPTS = \
 	--enable-static-linking \
 	--enable-extfs \

@@ -54,6 +54,9 @@ BR2_PACKAGE_OPENSSL=y
 # BusyBox (shell + core utils)
 BR2_PACKAGE_BUSYBOX=y
 
+# We need static libs
+BR2_STATIC_LIBS=y
+
 # Imaging engine
 BR2_PACKAGE_PARTCLONE=y
 
