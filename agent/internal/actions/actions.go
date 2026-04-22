@@ -4,7 +4,6 @@ package actions
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -145,8 +144,9 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 		partNum := i + 1
 		fs := detectFilesystem(dev)
 		slog.Info("capturing partition", "part", partNum, "device", dev, "fs", fs)
+		pd := newProgressDisplay(partNum, len(parts), dev+" ("+fs+")")
 		progressFn := func(pct int, bpm int64) {
-			printProgressBar(partNum, len(parts), pct, bpm)
+			pd.update(pct, bpm)
 			_ = client.ReportProgress(ctx, fogapi.ProgressRequest{
 				TaskID:        resp.TaskID,
 				Percent:       pct,
@@ -161,14 +161,14 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 			errCh <- err
 		}()
 		if upErr := client.UploadPart(ctx, resp.ImageID, partNum, pr); upErr != nil {
-			fmt.Fprintln(os.Stderr)
+			pd.done()
 			return reportFail(ctx, client, resp.TaskID, "upload failed for part "+strconv.Itoa(partNum)+": "+upErr.Error())
 		}
 		if err := <-errCh; err != nil {
-			fmt.Fprintln(os.Stderr)
+			pd.done()
 			return reportFail(ctx, client, resp.TaskID, "partclone failed for part "+strconv.Itoa(partNum)+": "+err.Error())
 		}
-		fmt.Fprintln(os.Stderr)
+		pd.done()
 	}
 
 	return client.Complete(ctx, fogapi.CompleteRequest{
