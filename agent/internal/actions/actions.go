@@ -3,7 +3,10 @@
 package actions
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -101,7 +104,36 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 				time.Sleep(5 * time.Second)
 				continue
 			}
-			imgErr := imaging.Restore(ctx, dev, "ext4", body, progressFn)
+
+			// Peek the first byte: '{' means this is a JSON metadata sentinel
+			// (e.g. a swap partition), not raw partclone data.
+			peek := make([]byte, 1)
+			n, _ := io.ReadFull(body, peek)
+			full := io.MultiReader(bytes.NewReader(peek[:n]), body)
+
+			if n == 1 && peek[0] == '{' {
+				raw, readErr := io.ReadAll(full)
+				body.Close()
+				if readErr != nil {
+					slog.Warn("reading part sentinel failed, retrying", "part", part, "attempt", attempt, "err", readErr)
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				var meta partMeta
+				_ = json.Unmarshal(raw, &meta)
+				if meta.Type == "swap" {
+					slog.Info("recreating swap partition", "part", part, "device", dev, "uuid", meta.UUID)
+					if mkErr := makeSwap(dev, meta.UUID); mkErr != nil {
+						slog.Warn("mkswap failed, retrying", "part", part, "attempt", attempt, "err", mkErr)
+						time.Sleep(5 * time.Second)
+						continue
+					}
+				}
+				break
+			}
+
+			fs := detectFilesystem(dev)
+			imgErr := imaging.Restore(ctx, dev, fs, full, progressFn)
 			body.Close()
 			if imgErr == nil {
 				break
@@ -144,6 +176,19 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 		partNum := i + 1
 		fs := detectFilesystem(dev)
 		slog.Info("capturing partition", "part", partNum, "device", dev, "fs", fs)
+
+		// Swap partitions cannot be cloned with partclone. Save the UUID as a
+		// small JSON sentinel so Deploy can recreate the swap with mkswap.
+		if fs == "swap" {
+			uuid := readPartitionUUID(dev)
+			slog.Info("swap partition — saving UUID instead of cloning", "part", partNum, "uuid", uuid)
+			sentinel, _ := json.Marshal(partMeta{Type: "swap", UUID: uuid})
+			if err := client.UploadPart(ctx, resp.ImageID, partNum, bytes.NewReader(sentinel)); err != nil {
+				return reportFail(ctx, client, resp.TaskID, "swap sentinel upload failed for part "+strconv.Itoa(partNum)+": "+err.Error())
+			}
+			continue
+		}
+
 		pd := newProgressDisplay(partNum, len(parts), dev+" ("+fs+")")
 		progressFn := func(pct int, bpm int64) {
 			pd.update(pct, bpm)

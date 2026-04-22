@@ -7,14 +7,22 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
-// ProgressFunc is called with percent complete and bits-per-minute
-// as partclone emits progress lines on stderr.
+// statusFile is where the patched partclone writes machine-readable progress.
+// Format (one line, refreshed in-place):
+//
+//	speed+unit @ elapsed @ remaining @ current_size @ total_size @ percent @ total_bytes
+//
+// e.g. "  1.23GB/min@00:00:01@00:00:03@128 MiB@1 GiB@ 25.00@1073741824.000000"
+const statusFile = "/tmp/status.fog"
+
+// ProgressFunc is called with percent complete and bits-per-minute.
 type ProgressFunc func(percent int, bpm int64)
 
 // Restore streams src into partclone.restore targeting the given device.
@@ -22,42 +30,122 @@ type ProgressFunc func(percent int, bpm int64)
 func Restore(ctx context.Context, device, fs string, src io.Reader, progress ProgressFunc) error {
 	bin := partcloneBin(fs)
 	slog.Info("partclone restore", "device", device, "fs", fs, "bin", bin)
+	os.Remove(statusFile)
 	cmd := exec.CommandContext(ctx, bin, "--restore", "--overwrite", "--source", "-", "--output", device)
 	cmd.Stdin = src
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe: %w", err)
-	}
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start partclone: %w", err)
 	}
-	go parseProgress(stderr, progress)
-	if err := cmd.Wait(); err != nil {
+	done := make(chan struct{})
+	go pollStatus(done, progress)
+	err := cmd.Wait()
+	close(done)
+	if err != nil {
 		return fmt.Errorf("partclone.restore: %w", err)
 	}
 	return nil
 }
 
 // Clone captures device to dst, streaming raw partclone output.
-// fs is the filesystem type (e.g. "ext4"). dst is typically an
-// HTTP chunked upload writer.
 func Clone(ctx context.Context, device, fs string, dst io.Writer, progress ProgressFunc) error {
 	bin := partcloneBin(fs)
 	slog.Info("partclone clone", "device", device, "fs", fs, "bin", bin)
+	os.Remove(statusFile)
 	cmd := exec.CommandContext(ctx, bin, "--clone", "--source", device, "--output", "-")
 	cmd.Stdout = dst
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe: %w", err)
-	}
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start partclone: %w", err)
 	}
-	go parseProgress(stderr, progress)
-	if err := cmd.Wait(); err != nil {
+	done := make(chan struct{})
+	go pollStatus(done, progress)
+	err := cmd.Wait()
+	close(done)
+	if err != nil {
 		return fmt.Errorf("partclone.clone: %w", err)
 	}
 	return nil
+}
+
+// pollStatus reads /tmp/status.fog every 500 ms and calls fn with the latest values.
+// It stops when done is closed.
+func pollStatus(done <-chan struct{}, fn ProgressFunc) {
+	if fn == nil {
+		return
+	}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			// One final read so the caller gets 100% if partclone wrote it.
+			readStatus(fn)
+			return
+		case <-ticker.C:
+			readStatus(fn)
+		}
+	}
+}
+
+// readStatus reads /tmp/status.fog and calls fn if the file is valid.
+func readStatus(fn ProgressFunc) {
+	data, err := os.ReadFile(statusFile)
+	if err != nil || len(data) == 0 {
+		return
+	}
+	// Take the last non-empty line in case the file has stale content above.
+	line := strings.TrimSpace(string(data))
+	if i := strings.LastIndex(line, "\n"); i >= 0 {
+		line = strings.TrimSpace(line[i+1:])
+	}
+	if line == "" {
+		return
+	}
+	// Format: speed+unit @ elapsed @ remaining @ current_size @ total_size @ percent @ total_bytes
+	parts := strings.Split(line, "@")
+	if len(parts) < 7 {
+		return
+	}
+	pct, err := strconv.ParseFloat(strings.TrimSpace(parts[5]), 64)
+	if err != nil {
+		return
+	}
+	bpm := parseSpeedBpm(strings.TrimSpace(parts[0]))
+	fn(int(pct), bpm)
+}
+
+// parseSpeedBpm parses a partclone speed string like "  1.23GB/min" into bits-per-minute.
+func parseSpeedBpm(s string) int64 {
+	// s looks like "  1.23GB/min" — find the first digit
+	start := strings.IndexAny(s, "0123456789.")
+	if start < 0 {
+		return 0
+	}
+	// Find where the unit begins (first letter after the number)
+	end := start
+	for end < len(s) && (s[end] == '.' || (s[end] >= '0' && s[end] <= '9')) {
+		end++
+	}
+	val, err := strconv.ParseFloat(s[start:end], 64)
+	if err != nil {
+		return 0
+	}
+	unit := strings.ToUpper(strings.TrimSpace(s[end:]))
+	var multiplier float64
+	switch unit {
+	case "KB/MIN":
+		multiplier = 8 * 1e3
+	case "MB/MIN":
+		multiplier = 8 * 1e6
+	case "GB/MIN":
+		multiplier = 8 * 1e9
+	case "TB/MIN":
+		multiplier = 8 * 1e12
+	default:
+		multiplier = 1
+	}
+	return int64(val * multiplier)
 }
 
 // partcloneBin maps a filesystem label to the appropriate partclone binary.
@@ -76,54 +164,4 @@ func partcloneBin(fs string) string {
 	default:
 		return "partclone.dd"
 	}
-}
-
-// progressRe matches partclone's progress output:
-// "Elapsed: 00:00:01, Remaining: 00:00:03, Completed: 25.00%, Rate:  123.45MB/min"
-var progressRe = regexp.MustCompile(`Completed:\s+(\d+(?:\.\d+)?)%.*?Rate:\s+([\d.]+)([KMGT]B/min)`)
-
-func parseProgress(r io.Reader, fn ProgressFunc) {
-	if fn == nil {
-		io.Copy(io.Discard, r)
-		return
-	}
-	buf := make([]byte, 4096)
-	var tail string
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			chunk := tail + string(buf[:n])
-			lines := strings.Split(chunk, "\r")
-			// Retain incomplete last fragment
-			tail = lines[len(lines)-1]
-			for _, line := range lines[:len(lines)-1] {
-				if m := progressRe.FindStringSubmatch(line); m != nil {
-					pct, _ := strconv.ParseFloat(m[1], 64)
-					rate, _ := strconv.ParseFloat(m[2], 64)
-					bpm := rateToMbpm(rate, m[3])
-					fn(int(pct), bpm)
-				}
-			}
-		}
-		if err != nil {
-			break
-		}
-	}
-}
-
-func rateToMbpm(rate float64, unit string) int64 {
-	var multiplier float64
-	switch unit {
-	case "KB/min":
-		multiplier = 8 * 1e3
-	case "MB/min":
-		multiplier = 8 * 1e6
-	case "GB/min":
-		multiplier = 8 * 1e9
-	case "TB/min":
-		multiplier = 8 * 1e12
-	default:
-		multiplier = 1
-	}
-	return int64(rate * multiplier)
 }
