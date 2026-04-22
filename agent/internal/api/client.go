@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -29,9 +30,22 @@ func New(baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		// No timeout for streaming operations — image transfers can take many
-		// minutes on slow links. The caller's context handles cancellation.
-		streamClient: &http.Client{},
+		// Dedicated transport for streaming operations:
+		// - Own connection pool (no sharing with httpClient)
+		// - TCP keepalive every 15 s so NAT/firewall doesn't drop idle connections
+		//   during partclone pauses between filesystem blocks
+		// - No Timeout on the Client — context cancellation handles abort
+		streamClient: &http.Client{
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   2 * time.Minute,
+					KeepAlive: 15 * time.Second,
+				}).DialContext,
+				ResponseHeaderTimeout: 0, // no timeout waiting for response
+				IdleConnTimeout:       0, // keep connections alive indefinitely
+				DisableKeepAlives:     false,
+			},
+		},
 	}
 }
 

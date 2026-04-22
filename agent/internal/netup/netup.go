@@ -92,10 +92,12 @@ func linkUp(iface string) {
 	}
 }
 
-// runUDHCPC runs udhcpc in foreground mode on the given interface.
+// runUDHCPC runs udhcpc on the given interface and keeps it running so that
+// DHCP lease renewals are handled during long imaging sessions.
+// The -q flag (quit after lease) is intentionally omitted.
 // It is expected to be called from a goroutine; errors are logged.
 func runUDHCPC(iface string) {
-	cmd := exec.Command("udhcpc", "-i", iface, "-q", "-f", "-n")
+	cmd := exec.Command("udhcpc", "-i", iface, "-f", "-n")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
