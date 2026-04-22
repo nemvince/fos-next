@@ -96,7 +96,7 @@ jobs:
           path: |
             build/output/build
             build/output/target
-          key: buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig', 'buildroot/package/**') }}-${{ github.sha }}
+          key: buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig', 'buildroot/package/**', 'agent/**/*.go', 'agent/go.mod', 'agent/go.sum') }}
           restore-keys: |
             buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig', 'buildroot/package/**') }}-
             buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-
