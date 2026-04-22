@@ -4,6 +4,7 @@ package actions
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -144,19 +145,30 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 		partNum := i + 1
 		fs := detectFilesystem(dev)
 		slog.Info("capturing partition", "part", partNum, "device", dev, "fs", fs)
+		progressFn := func(pct int, bpm int64) {
+			printProgressBar(partNum, len(parts), pct, bpm)
+			_ = client.ReportProgress(ctx, fogapi.ProgressRequest{
+				TaskID:        resp.TaskID,
+				Percent:       pct,
+				BitsPerMinute: bpm,
+			})
+		}
 		pr, pw := syncPipe()
 		errCh := make(chan error, 1)
 		go func() {
-			err := imaging.Clone(ctx, dev, fs, pw, nil)
+			err := imaging.Clone(ctx, dev, fs, pw, progressFn)
 			pw.CloseWithError(err)
 			errCh <- err
 		}()
 		if upErr := client.UploadPart(ctx, resp.ImageID, partNum, pr); upErr != nil {
-			return reportFail(ctx, client, resp.TaskID, "upload failed for part "+string(rune('0'+partNum))+": "+upErr.Error())
+			fmt.Fprintln(os.Stderr)
+			return reportFail(ctx, client, resp.TaskID, "upload failed for part "+strconv.Itoa(partNum)+": "+upErr.Error())
 		}
 		if err := <-errCh; err != nil {
-			return reportFail(ctx, client, resp.TaskID, "partclone failed for part "+string(rune('0'+partNum))+": "+err.Error())
+			fmt.Fprintln(os.Stderr)
+			return reportFail(ctx, client, resp.TaskID, "partclone failed for part "+strconv.Itoa(partNum)+": "+err.Error())
 		}
+		fmt.Fprintln(os.Stderr)
 	}
 
 	return client.Complete(ctx, fogapi.CompleteRequest{

@@ -1,7 +1,10 @@
 package actions
 
 import (
+	"fmt"
 	"io"
+	"os"
+	"strings"
 	"syscall"
 )
 
@@ -42,4 +45,20 @@ func bytesReaderOf(b []byte) io.Reader {
 // readAll is a thin wrapper around io.ReadAll.
 func readAll(r io.Reader) ([]byte, error) {
 	return io.ReadAll(r)
+}
+
+// printProgressBar writes an in-place progress line to stderr.
+// part/total are 1-based partition indices; bpm is bits per minute from partclone.
+func printProgressBar(part, total, pct int, bpm int64) {
+	const width = 30
+	filled := pct * width / 100
+	var bar string
+	if filled >= width {
+		bar = strings.Repeat("=", width)
+	} else {
+		bar = strings.Repeat("=", filled) + ">" + strings.Repeat(" ", width-filled-1)
+	}
+	mbpm := float64(bpm) / (8 * 1024 * 1024)
+	fmt.Fprintf(os.Stderr, "\r  part %d/%d  [%s] %3d%%  %.1f MB/min   ",
+		part, total, bar, pct, mbpm)
 }
