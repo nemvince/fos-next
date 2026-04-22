@@ -86,13 +86,16 @@ jobs:
           restore-keys: |
             buildroot-host-${{ env.BUILDROOT_VERSION }}-${{ env.KERNEL_VERSION }}-
 
-      # Per-package build directories. Restored from the closest prior run so
-      # only changed packages need to be rebuilt. Saved with a sha-suffixed key
-      # so each successful build produces a fresh snapshot.
+      # Per-package build directories and target rootfs. Both are cached together
+      # with the same key so they stay in sync — if only build/ is restored but
+      # not target/, Buildroot skips reinstalling packages (stamp files say done)
+      # and target-finalize fails trying to edit target/etc/inittab.
       - name: Cache Buildroot package builds
         uses: actions/cache@v5
         with:
-          path: build/output/build
+          path: |
+            build/output/build
+            build/output/target
           key: buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig', 'buildroot/package/**') }}-${{ github.sha }}
           restore-keys: |
             buildroot-pkgs-${{ env.BUILDROOT_VERSION }}-${{ hashFiles('buildroot/configs/fsx64_defconfig', 'buildroot/package/**') }}-
