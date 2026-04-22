@@ -16,9 +16,10 @@ import (
 
 // Client wraps the fog-next boot API with automatic token attachment and retries.
 type Client struct {
-	base       string
-	httpClient *http.Client
-	token      string // boot token; set after Handshake
+	base         string
+	httpClient   *http.Client // used for short API calls (30 s timeout)
+	streamClient *http.Client // used for streaming upload/download (no timeout)
+	token        string       // boot token; set after Handshake
 }
 
 // New creates a Client pointed at baseURL (e.g. "http://10.0.0.1").
@@ -28,6 +29,9 @@ func New(baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		// No timeout for streaming operations — image transfers can take many
+		// minutes on slow links. The caller's context handles cancellation.
+		streamClient: &http.Client{},
 	}
 }
 
@@ -120,7 +124,7 @@ func (c *Client) DownloadPart(ctx context.Context, imageID string, part int, ran
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", rangeStart))
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.streamClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -142,7 +146,7 @@ func (c *Client) UploadPart(ctx context.Context, imageID string, part int, body 
 	req.Header.Set("Content-Type", "application/octet-stream")
 	// Use chunked transfer — do not set Content-Length.
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.streamClient.Do(req)
 	if err != nil {
 		return err
 	}
