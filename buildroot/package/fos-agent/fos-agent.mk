@@ -19,11 +19,24 @@ FOS_AGENT_DEPENDENCIES      = host-go
 FOS_AGENT_GOARCH      = amd64
 FOS_AGENT_GOOS        = linux
 
+# Version information injected at link time.
+# FOS_VERSION / FOS_COMMIT / FOS_BUILD_DATE are set by the CI environment
+# (see .github/workflows/build.yml). Fall back to "dev" for local builds.
+FOS_VERSION    ?= dev
+FOS_COMMIT     ?= unknown
+FOS_BUILD_DATE ?= unknown
+
+FOS_AGENT_VERSION_PKG = github.com/nemvince/fos-next/internal/version
+FOS_AGENT_LDFLAGS = -s -w \
+	-X $(FOS_AGENT_VERSION_PKG).Version=$(FOS_VERSION) \
+	-X $(FOS_AGENT_VERSION_PKG).Commit=$(FOS_COMMIT) \
+	-X $(FOS_AGENT_VERSION_PKG).BuildDate=$(FOS_BUILD_DATE)
+
 define FOS_AGENT_BUILD_CMDS
 	cd $($(PKG)_SRCDIR) && \
 	CGO_ENABLED=0 GOOS=$(FOS_AGENT_GOOS) GOARCH=$(FOS_AGENT_GOARCH) \
 	$(HOST_DIR)/bin/go build \
-		-ldflags="-s -w" \
+		-ldflags="$(FOS_AGENT_LDFLAGS)" \
 		-o $(@D)/fos-agent \
 		./cmd/fos-agent
 endef

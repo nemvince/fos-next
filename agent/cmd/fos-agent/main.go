@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,12 +16,25 @@ import (
 	fogapi "github.com/nemvince/fos-next/internal/api"
 	"github.com/nemvince/fos-next/internal/cmdline"
 	"github.com/nemvince/fos-next/internal/netup"
+	"github.com/nemvince/fos-next/internal/version"
 )
 
 func main() {
 	setupLogging()
 
-	slog.Info("fos-agent starting")
+	slog.Info("fos-agent starting",
+		"version", version.Version,
+		"commit", version.Commit,
+		"buildDate", version.BuildDate,
+	)
+
+	if rel, err := os.ReadFile("/etc/fos-release"); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(rel)), "\n") {
+			if line != "" {
+				slog.Info("fos-release", "entry", strings.TrimSpace(line))
+			}
+		}
+	}
 
 	params, err := cmdline.Parse()
 	if err != nil {
