@@ -98,12 +98,16 @@ func main() {
 	}
 }
 
-// setupLogging configures slog to write to /dev/console so messages appear on
-// the active console (TTY and serial) without passing through the kernel printk
-// ring buffer, bypassing printk rate-limiting entirely.
-// Falls back to stderr if the console device is unavailable (e.g. CI).
+// setupLogging configures slog to write to /dev/kmsg so messages appear in
+// dmesg and over serial console.  Falls back to stderr if kmsg is unavailable.
 func setupLogging() {
-	console, err := os.OpenFile("/dev/console", os.O_WRONLY, 0)
+	// Disable the kernel printk rate limiter so fos-agent log lines are never
+	// suppressed during long imaging sessions.
+	_ = os.WriteFile("/proc/sys/kernel/printk_ratelimit", []byte("0"), 0)
+	// do the same for the burst setting to allow bursts of log messages without dropping.
+	_ = os.WriteFile("/proc/sys/kernel/printk_ratelimit_burst", []byte("1000"), 0)
+
+	kmsg, err := os.OpenFile("/dev/kmsg", os.O_WRONLY, 0)
 	if err != nil {
 		// Running outside initramfs (e.g. CI / unit tests) — use stderr.
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -111,7 +115,7 @@ func setupLogging() {
 		})))
 		return
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(console, &slog.HandlerOptions{
+	slog.SetDefault(slog.New(slog.NewTextHandler(kmsg, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})))
 }
