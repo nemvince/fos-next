@@ -8,13 +8,13 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	fogapi "github.com/nemvince/fos-next/internal/api"
+	"github.com/nemvince/fos-next/internal/disk"
 	"github.com/nemvince/fos-next/internal/imaging"
 	"github.com/nemvince/fos-next/internal/inventory"
 	"github.com/nemvince/fos-next/internal/partition"
@@ -72,7 +72,16 @@ func Register(ctx context.Context, client *fogapi.Client, macs []string) error {
 
 func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeResponse) error {
 	slog.Info("action: deploy", "imageId", resp.ImageID, "parts", resp.PartCount)
-	disk := primaryDisk()
+	targetDisk, err := disk.Primary()
+	if err != nil {
+		return reportFail(ctx, client, resp.TaskID, "disk detection failed: "+err.Error())
+	}
+
+	isResizable := resp.ImageType == "resizable"
+	fixedSet := make(map[int]bool, len(resp.FixedSizePartitions))
+	for _, n := range resp.FixedSizePartitions {
+		fixedSet[n] = true
+	}
 
 	// Download and restore the partition table first.
 	ptable, _, err := client.DownloadPart(ctx, resp.ImageID, 0, 0)
@@ -84,7 +93,7 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 	if err != nil {
 		return reportFail(ctx, client, resp.TaskID, "reading partition table: "+err.Error())
 	}
-	if err := partition.Restore(disk, tableBytes); err != nil {
+	if err := partition.Restore(targetDisk, tableBytes); err != nil {
 		return reportFail(ctx, client, resp.TaskID, "restoring partition table: "+err.Error())
 	}
 
@@ -93,7 +102,7 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 	progressFn := makeProgressFn(ctx, client, resp.TaskID, &transferred, totalBytes)
 
 	for part := 1; part <= resp.PartCount; part++ {
-		dev := partitionDevice(disk, part)
+		dev := disk.PartitionDevice(targetDisk, part)
 		slog.Info("deploying partition", "part", part, "device", dev)
 
 		var resumeOffset int64
@@ -135,16 +144,41 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 			fs := detectFilesystem(dev)
 			imgErr := imaging.Restore(ctx, dev, fs, full, progressFn)
 			body.Close()
-			if imgErr == nil {
-				break
+			if imgErr != nil {
+				slog.Warn("restore failed, retrying", "part", part, "attempt", attempt, "err", imgErr)
+				time.Sleep(5 * time.Second)
+				continue
 			}
-			slog.Warn("restore failed, retrying", "part", part, "attempt", attempt, "err", imgErr)
-			time.Sleep(5 * time.Second)
+
+			// Re-detect the filesystem now that the partition has been
+			// restored and has a valid superblock.  This is the type used
+			// for expand, not for the partclone restore above.
+			restoredFS := detectFilesystem(dev)
+
+			// Clear the NTFS dirty bit so Windows doesn't run chkdsk on
+			// the first boot after deploy.
+			if strings.ToLower(restoredFS) == "ntfs" {
+				imaging.NtfsFixDirty(dev)
+			}
+
+			// Expand the filesystem to fill its partition.  Only done for
+			// resizable images and partitions not marked fixed-size.
+			if isResizable && !fixedSet[part] {
+				slog.Info("expanding filesystem after restore", "part", part, "device", dev, "fs", restoredFS)
+				if expErr := imaging.Expand(ctx, dev, restoredFS); expErr != nil {
+					slog.Warn("filesystem expand failed (non-fatal)", "part", part, "err", expErr)
+				}
+			}
+			break
 		}
 	}
 
-	if err := partition.ExpandLast(disk); err != nil {
-		slog.Warn("expand last partition failed (non-fatal)", "err", err)
+	// Expand the last partition's table entry to fill the disk.  This is a
+	// partition-table-level resize separate from the filesystem resize above.
+	if isResizable {
+		if err := partition.ExpandLast(targetDisk); err != nil {
+			slog.Warn("expand last partition table entry failed (non-fatal)", "err", err)
+		}
 	}
 
 	return client.Complete(ctx, fogapi.CompleteRequest{
@@ -159,10 +193,15 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 
 func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeResponse) error {
 	slog.Info("action: capture", "imageId", resp.ImageID)
-	disk := primaryDisk()
+	targetDisk, err := disk.Primary()
+	if err != nil {
+		return reportFail(ctx, client, resp.TaskID, "disk detection failed: "+err.Error())
+	}
+
+	isResizable := resp.ImageType == "resizable"
 
 	// Backup partition table.
-	tableBytes, err := partition.Backup(disk)
+	tableBytes, err := partition.Backup(targetDisk)
 	if err != nil {
 		return reportFail(ctx, client, resp.TaskID, "partition table backup failed: "+err.Error())
 	}
@@ -171,11 +210,20 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 	}
 
 	// Determine partition count from the disk.
-	parts := discoverPartitions(disk)
+	parts := disk.DiscoverPartitions(targetDisk)
+	var fixedSizePartitions []int
+
 	for i, dev := range parts {
 		partNum := i + 1
 		fs := detectFilesystem(dev)
 		slog.Info("capturing partition", "part", partNum, "device", dev, "fs", fs)
+
+		// Abort if Bitlocker encryption is detected — cloning an encrypted
+		// volume produces an unusable image.
+		if fs == "ntfs" && imaging.IsBitlockerEncrypted(dev) {
+			return reportFail(ctx, client, resp.TaskID,
+				"Bitlocker encryption detected on partition "+strconv.Itoa(partNum)+" ("+dev+") — cannot capture encrypted volume")
+		}
 
 		// Swap partitions cannot be cloned with partclone. Save the UUID as a
 		// small JSON sentinel so Deploy can recreate the swap with mkswap.
@@ -187,6 +235,28 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 				return reportFail(ctx, client, resp.TaskID, "swap sentinel upload failed for part "+strconv.Itoa(partNum)+": "+err.Error())
 			}
 			continue
+		}
+
+		if isResizable {
+			// Clean NTFS Windows files that bloat the image.
+			if fs == "ntfs" {
+				slog.Info("cleaning NTFS Windows files before capture", "part", partNum)
+				imaging.CleanNTFS(ctx, dev)
+			}
+			// Attempt to shrink the filesystem.
+			if imaging.CanShrink(fs) {
+				slog.Info("shrinking filesystem before capture", "part", partNum, "fs", fs)
+				shrunk, shrinkErr := imaging.Shrink(ctx, dev, fs)
+				if shrinkErr != nil {
+					slog.Warn("filesystem shrink failed, capturing at full size", "part", partNum, "err", shrinkErr)
+					fixedSizePartitions = append(fixedSizePartitions, partNum)
+				} else if !shrunk {
+					fixedSizePartitions = append(fixedSizePartitions, partNum)
+				}
+			} else {
+				// XFS, F2FS, FAT etc. cannot be shrunk.
+				fixedSizePartitions = append(fixedSizePartitions, partNum)
+			}
 		}
 
 		pd := newProgressDisplay(partNum, len(parts), dev+" ("+fs+")")
@@ -216,6 +286,22 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 		pd.done()
 	}
 
+	// Report image metadata so future deploy operations know the image type
+	// and which partitions are fixed-size.
+	imageType := "fixed"
+	if isResizable {
+		imageType = "resizable"
+	}
+	if err := client.SetImageMeta(ctx, fogapi.ImageMetaRequest{
+		TaskID:              resp.TaskID,
+		ImageID:             resp.ImageID,
+		ImageType:           imageType,
+		FixedSizePartitions: fixedSizePartitions,
+		PartCount:           len(parts),
+	}); err != nil {
+		slog.Warn("SetImageMeta failed (non-fatal)", "err", err)
+	}
+
 	return client.Complete(ctx, fogapi.CompleteRequest{
 		TaskID:  resp.TaskID,
 		Success: true,
@@ -228,8 +314,11 @@ func Capture(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeR
 
 func Wipe(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeResponse) error {
 	slog.Info("action: wipe")
-	disk := primaryDisk()
-	if err := partition.Wipe(disk, 1); err != nil {
+	targetDisk, err := disk.Primary()
+	if err != nil {
+		return reportFail(ctx, client, resp.TaskID, "disk detection failed: "+err.Error())
+	}
+	if err := partition.Wipe(targetDisk, 1); err != nil {
 		return reportFail(ctx, client, resp.TaskID, "wipe failed: "+err.Error())
 	}
 	return client.Complete(ctx, fogapi.CompleteRequest{TaskID: resp.TaskID, Success: true})
@@ -272,35 +361,6 @@ func makeProgressFn(ctx context.Context, client *fogapi.Client, taskID string, t
 			slog.Warn("progress report failed", "err", err)
 		}
 	}
-}
-
-func primaryDisk() string {
-	candidates := []string{"/dev/sda", "/dev/nvme0n1", "/dev/vda"}
-	for _, d := range candidates {
-		if _, err := os.Stat(d); err == nil {
-			return d
-		}
-	}
-	return "/dev/sda"
-}
-
-func partitionDevice(disk string, num int) string {
-	// nvme0n1 uses p-suffix: nvme0n1p1
-	if len(disk) > 4 && disk[len(disk)-2] == 'n' {
-		return disk + "p" + strconv.Itoa(num)
-	}
-	return disk + strconv.Itoa(num)
-}
-
-func discoverPartitions(disk string) []string {
-	var parts []string
-	for i := 1; i <= 16; i++ {
-		dev := partitionDevice(disk, i)
-		if _, err := os.Stat(dev); err == nil {
-			parts = append(parts, dev)
-		}
-	}
-	return parts
 }
 
 // detectFilesystem uses blkid to determine the filesystem type of a partition.

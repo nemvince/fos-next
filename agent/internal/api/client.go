@@ -60,13 +60,25 @@ type HandshakeRequest struct {
 
 // HandshakeResponse is returned by the server after a successful handshake.
 type HandshakeResponse struct {
-	BootToken     string  `json:"bootToken"`
-	TaskID        string  `json:"taskId"`
-	Action        string  `json:"action"`
-	ImageID       string  `json:"imageId,omitempty"`
-	PartCount     int     `json:"partCount,omitempty"`
-	TotalBytes    int64   `json:"totalBytes,omitempty"`
+	BootToken      string `json:"bootToken"`
+	TaskID         string `json:"taskId"`
+	Action         string `json:"action"`
+	ImageID        string `json:"imageId,omitempty"`
+	PartCount      int    `json:"partCount,omitempty"`
+	TotalBytes     int64  `json:"totalBytes,omitempty"`
 	StorageNodeURL string `json:"storageNodeUrl,omitempty"`
+
+	// ImageType controls resize behaviour during capture and deploy.
+	// "resizable" — shrink on capture, expand on deploy (default for new images)
+	// "fixed"     — capture and restore at exact block size, no resize
+	// "dd"        — raw block-for-block copy regardless of filesystem
+	ImageType string `json:"imageType,omitempty"`
+
+	// FixedSizePartitions lists partition numbers (1-based) that must NOT be
+	// resized during deploy even when ImageType is "resizable".  The server
+	// populates this from metadata reported by a prior capture run (e.g.
+	// partitions that could not be shrunk: XFS, F2FS, recovery partitions).
+	FixedSizePartitions []int `json:"fixedSizePartitions,omitempty"`
 }
 
 // RegisterRequest carries hardware inventory for an unknown host.
@@ -94,6 +106,17 @@ type CompleteRequest struct {
 	Message string `json:"message,omitempty"`
 }
 
+// ImageMetaRequest carries capture-time metadata the server stores alongside
+// the image so it can populate HandshakeResponse correctly during future
+// deploy tasks.
+type ImageMetaRequest struct {
+	TaskID              string `json:"taskId"`
+	ImageID             string `json:"imageId"`
+	ImageType           string `json:"imageType"`           // "resizable" or "fixed"
+	FixedSizePartitions []int  `json:"fixedSizePartitions"` // partitions that could not be shrunk
+	PartCount           int    `json:"partCount"`           // total number of partitions captured
+}
+
 // ------------------------------------------------------------------
 // API calls
 // ------------------------------------------------------------------
@@ -117,6 +140,13 @@ func (c *Client) Register(ctx context.Context, req RegisterRequest) error {
 // ReportProgress posts incremental progress to the server.
 func (c *Client) ReportProgress(ctx context.Context, req ProgressRequest) error {
 	return c.post(ctx, "/progress", req, nil, true)
+}
+
+// SetImageMeta stores capture-time metadata for an image.  Called by the
+// Capture action after all partitions have been uploaded so the server can
+// record which partitions are fixed-size for future deploy operations.
+func (c *Client) SetImageMeta(ctx context.Context, req ImageMetaRequest) error {
+	return c.post(ctx, "/images/meta", req, nil, true)
 }
 
 // Complete marks the task as finished or failed.
