@@ -98,9 +98,20 @@ func main() {
 	}
 }
 
-// setupLogging configures slog to write to stdout.
+// setupLogging configures slog to write to /dev/console so messages appear on
+// the active console (TTY and serial) without passing through the kernel printk
+// ring buffer, bypassing printk rate-limiting entirely.
+// Falls back to stderr if the console device is unavailable (e.g. CI).
 func setupLogging() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	console, err := os.OpenFile("/dev/console", os.O_WRONLY, 0)
+	if err != nil {
+		// Running outside initramfs (e.g. CI / unit tests) — use stderr.
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})))
+		return
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(console, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})))
 }
