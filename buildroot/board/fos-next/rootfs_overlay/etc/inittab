@@ -15,7 +15,10 @@ null::sysinit:/bin/mkdir -p /dev/pts
 null::sysinit:/bin/mount -t devpts devpts /dev/pts
 
 # Run init.d scripts in order
-null::sysinit:/etc/init.d/rcS
+# 'console' tells BusyBox init to open /dev/console and dup2 it to
+# stdin/stdout/stderr before exec-ing rcS, so the entire process tree
+# (rcS → S99fos → fos-agent) inherits a usable console fd.
+console::sysinit:/etc/init.d/rcS
 
 # fos-agent runs as PID 1 init (started by rcS/S99fos)
 # Console on tty1 for debug mode (respawn only if agent exits 0)

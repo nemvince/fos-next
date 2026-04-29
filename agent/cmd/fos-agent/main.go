@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -98,24 +99,19 @@ func main() {
 	}
 }
 
-// setupLogging configures slog to write to /dev/kmsg so messages appear in
-// dmesg and over serial console.  Falls back to stderr if kmsg is unavailable.
+// setupLogging configures slog to write to stderr, which BusyBox init wires
+// to /dev/console (routed by the kernel per the console= cmdline parameter)
+// when fos-agent is launched via the console::sysinit inittab entry.
+// A secondary write to /dev/kmsg keeps messages visible in dmesg.
 func setupLogging() {
-	// Disable the kernel printk rate limiter so fos-agent log lines are never
-	// suppressed during long imaging sessions.
-	_ = os.WriteFile("/proc/sys/kernel/printk_ratelimit", []byte("0"), 0)
-	// do the same for the burst setting to allow bursts of log messages without dropping.
-	_ = os.WriteFile("/proc/sys/kernel/printk_ratelimit_burst", []byte("1000"), 0)
+	w := io.Writer(os.Stderr)
 
-	kmsg, err := os.OpenFile("/dev/kmsg", os.O_WRONLY, 0)
-	if err != nil {
-		// Running outside initramfs (e.g. CI / unit tests) — use stderr.
-		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		})))
-		return
+	// Best-effort: also mirror to /dev/kmsg so messages survive in dmesg.
+	if kmsg, err := os.OpenFile("/dev/kmsg", os.O_WRONLY, 0); err == nil {
+		w = io.MultiWriter(os.Stderr, kmsg)
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(kmsg, &slog.HandlerOptions{
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})))
 }
