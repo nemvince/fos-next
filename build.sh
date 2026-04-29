@@ -102,7 +102,7 @@ if [[ "$BUILD_KERNEL" == "true" ]]; then
     TARGETS+=("linux")
 fi
 if [[ "$BUILD_FS" == "true" ]]; then
-    TARGETS+=("agent" "rootfs-cpio")
+    TARGETS+=("fos-agent" "rootfs-cpio")
 fi
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
     echo "Error: nothing to build — both -k and -f cannot be skipped simultaneously."

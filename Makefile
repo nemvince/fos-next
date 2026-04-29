@@ -20,8 +20,13 @@ test:
 clean:
 	rm -rf build/output images/
 
-agent:
+fos-agent:
 	cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-	  go build -ldflags="-s -w" -o ../images/fos-agent ./cmd/fos-agent
+	  go build \
+	    -ldflags="-s -w \
+	      -X github.com/nemvince/fos-next/internal/version.Version=$(shell git describe --tags --always 2>/dev/null || echo dev) \
+	      -X github.com/nemvince/fos-next/internal/version.Commit=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown) \
+	      -X github.com/nemvince/fos-next/internal/version.BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" \
+	    -o ../images/fos-agent ./cmd/fos-agent
 
-.PHONY: agent
+.PHONY: fos-agent
