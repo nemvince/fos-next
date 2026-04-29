@@ -1,0 +1,1 @@
+qemu-system-x86_64 -m 512M -kernel images/bzImage -initrd images/init.xz -append "fog_server=10.8.2.126"

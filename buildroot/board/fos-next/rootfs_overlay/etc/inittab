@@ -7,14 +7,17 @@
 #   once      - run once and do not restart
 #   wait      - run once and wait for completion
 
-# Mount important pseudo-filesystems
-null::sysinit:/bin/mount -t proc proc /proc
-null::sysinit:/bin/mount -t sysfs sysfs /sys
-null::sysinit:/bin/mount -t devtmpfs devtmpfs /dev
-null::sysinit:/bin/mkdir -p /dev/pts
-null::sysinit:/bin/mount -t devpts devpts /dev/pts
+# Mount important pseudo-filesystems.
+# Use empty id (::) so init uses its own inherited stdio — no dependency on
+# /dev/null existing. Do NOT mount devtmpfs here: CONFIG_DEVTMPFS_MOUNT=y
+# causes the kernel to mount it before init runs; a userspace remount would
+# replace it with a fresh empty instance, hiding /dev/console and /dev/null.
+::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mount -t sysfs sysfs /sys
+::sysinit:/bin/mkdir -p /dev/pts
+::sysinit:/bin/mount -t devpts devpts /dev/pts
 
-# Run init.d scripts in order
+# Run init.d scripts in order.
 # 'console' tells BusyBox init to open /dev/console and dup2 it to
 # stdin/stdout/stderr before exec-ing rcS, so the entire process tree
 # (rcS → S99fos → fos-agent) inherits a usable console fd.

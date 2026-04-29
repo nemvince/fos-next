@@ -99,16 +99,22 @@ func main() {
 	}
 }
 
-// setupLogging configures slog to write to stderr, which BusyBox init wires
-// to /dev/console (routed by the kernel per the console= cmdline parameter)
-// when fos-agent is launched via the console::sysinit inittab entry.
-// A secondary write to /dev/kmsg keeps messages visible in dmesg.
+// setupLogging configures slog to write directly to /dev/console, making log
+// output independent of how init wires fos-agent's stdio — the explicit open
+// bypasses any fd inheritance from the inittab/sysinit entry. Falls back to
+// os.Stderr if /dev/console cannot be opened. A secondary write to /dev/kmsg
+// keeps messages visible in dmesg.
 func setupLogging() {
-	w := io.Writer(os.Stderr)
+	// Open /dev/console explicitly so logging works regardless of init's stdio
+	// wiring (e.g. when launched via inittab without a controlling terminal).
+	w := io.Writer(os.Stderr) // baseline fallback
+	if console, err := os.OpenFile("/dev/console", os.O_WRONLY, 0); err == nil {
+		w = console
+	}
 
 	// Best-effort: also mirror to /dev/kmsg so messages survive in dmesg.
 	if kmsg, err := os.OpenFile("/dev/kmsg", os.O_WRONLY, 0); err == nil {
-		w = io.MultiWriter(os.Stderr, kmsg)
+		w = io.MultiWriter(w, kmsg)
 	}
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
