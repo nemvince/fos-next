@@ -101,14 +101,25 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 	var transferred int64
 	progressFn := makeProgressFn(ctx, client, resp.TaskID, &transferred, totalBytes)
 
+	// For resizable images, expand the last partition table entry to fill the
+	// disk before restoring content so that imaging.Expand sees the full
+	// partition size when it grows the filesystem.
+	if isResizable {
+		if err := partition.ExpandLast(targetDisk); err != nil {
+			slog.Warn("expand last partition table entry failed (non-fatal)", "err", err)
+		}
+	}
+
 	for part := 1; part <= resp.PartCount; part++ {
 		dev := disk.PartitionDevice(targetDisk, part)
 		slog.Info("deploying partition", "part", part, "device", dev)
 
+		var partErr error
 		var resumeOffset int64
 		for attempt := 0; attempt < 3; attempt++ {
 			body, _, dlErr := client.DownloadPart(ctx, resp.ImageID, part, resumeOffset)
 			if dlErr != nil {
+				partErr = dlErr
 				slog.Warn("download failed, retrying", "part", part, "attempt", attempt, "err", dlErr)
 				time.Sleep(5 * time.Second)
 				continue
@@ -124,6 +135,7 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 				raw, readErr := io.ReadAll(full)
 				body.Close()
 				if readErr != nil {
+					partErr = readErr
 					slog.Warn("reading part sentinel failed, retrying", "part", part, "attempt", attempt, "err", readErr)
 					time.Sleep(5 * time.Second)
 					continue
@@ -133,11 +145,13 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 				if meta.Type == "swap" {
 					slog.Info("recreating swap partition", "part", part, "device", dev, "uuid", meta.UUID)
 					if mkErr := makeSwap(dev, meta.UUID); mkErr != nil {
+						partErr = mkErr
 						slog.Warn("mkswap failed, retrying", "part", part, "attempt", attempt, "err", mkErr)
 						time.Sleep(5 * time.Second)
 						continue
 					}
 				}
+				partErr = nil
 				break
 			}
 
@@ -145,6 +159,7 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 			imgErr := imaging.Restore(ctx, dev, fs, full, progressFn)
 			body.Close()
 			if imgErr != nil {
+				partErr = imgErr
 				slog.Warn("restore failed, retrying", "part", part, "attempt", attempt, "err", imgErr)
 				time.Sleep(5 * time.Second)
 				continue
@@ -169,15 +184,12 @@ func Deploy(ctx context.Context, client *fogapi.Client, resp *fogapi.HandshakeRe
 					slog.Warn("filesystem expand failed (non-fatal)", "part", part, "err", expErr)
 				}
 			}
+			partErr = nil
 			break
 		}
-	}
-
-	// Expand the last partition's table entry to fill the disk.  This is a
-	// partition-table-level resize separate from the filesystem resize above.
-	if isResizable {
-		if err := partition.ExpandLast(targetDisk); err != nil {
-			slog.Warn("expand last partition table entry failed (non-fatal)", "err", err)
+		if partErr != nil {
+			return reportFail(ctx, client, resp.TaskID,
+				"partition "+strconv.Itoa(part)+" restore failed after 3 attempts: "+partErr.Error())
 		}
 	}
 

@@ -108,13 +108,6 @@ func DiscoverPartitions(disk string) []string {
 		dev := PartitionDevice(disk, i)
 		if _, err := os.Stat(dev); err == nil {
 			parts = append(parts, dev)
-		} else {
-			// Partitions are numbered consecutively; stop at first gap.
-			// (GPT allows non-consecutive numbering but lsblk/partprobe
-			//  always creates /dev/sdaN in order.)
-			if len(parts) > 0 {
-				break
-			}
 		}
 	}
 	return parts

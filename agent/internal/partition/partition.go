@@ -3,7 +3,7 @@
 //
 //   - GPT  → backup/restore via sgdisk --backup / --load-backup
 //   - MBR  → backup via sfdisk -d + raw 512-byte boot sector;
-//             restore via dd (boot sector) + sfdisk
+//     restore via dd (boot sector) + sfdisk
 //
 // The partition table blob exchanged with the server is a JSON envelope so
 // the restore side always knows which path to take:
@@ -157,6 +157,14 @@ func restoreGPT(disk string, tb tableBlob) error {
 }
 
 func restoreSGDiskRaw(disk string, raw []byte) error {
+	// Zap any existing (possibly corrupt) GPT/MBR structures before restoring.
+	// sgdisk --zap-all regularly exits non-zero on corrupt or blank disks — that
+	// is the expected condition here, so the error is intentionally ignored.
+	zapOut, zapErr := exec.Command("sgdisk", "--zap-all", disk).CombinedOutput()
+	if zapErr != nil {
+		slog.Warn("sgdisk --zap-all returned non-zero (ignored)", "disk", disk, "err", zapErr, "output", string(zapOut))
+	}
+
 	tmp, err := os.CreateTemp("", "sgdisk-restore-*")
 	if err != nil {
 		return fmt.Errorf("sgdisk restore: create temp file: %w", err)
