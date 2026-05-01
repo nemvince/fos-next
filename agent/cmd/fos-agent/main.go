@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	setupLogging()
+	remoteHandler := setupLogging()
 
 	slog.Info("fos-agent starting",
 		"version", version.Version,
@@ -79,6 +79,12 @@ func main() {
 		halt(1)
 	}
 
+	// Activate remote log forwarding now that we have a boot token and task ID.
+	// Pre-handshake buffer is flushed automatically on the first drain tick.
+	if resp.TaskID != "" {
+		remoteHandler.SetClient(client, resp.TaskID)
+	}
+
 	// Override action from cmdline if set (e.g. fog_action=debug).
 	if params.FogAction != "" && params.FogAction != resp.Action {
 		slog.Info("cmdline overrides action", "from", resp.Action, "to", params.FogAction)
@@ -104,7 +110,9 @@ func main() {
 // bypasses any fd inheritance from the inittab/sysinit entry. Falls back to
 // os.Stderr if /dev/console cannot be opened. A secondary write to /dev/kmsg
 // keeps messages visible in dmesg.
-func setupLogging() {
+// It returns the RemoteHandler so the caller can activate remote forwarding
+// after a successful handshake.
+func setupLogging() *fogapi.RemoteHandler {
 	// Open /dev/console explicitly so logging works regardless of init's stdio
 	// wiring (e.g. when launched via inittab without a controlling terminal).
 	w := io.Writer(os.Stderr) // baseline fallback
@@ -117,9 +125,10 @@ func setupLogging() {
 		w = io.MultiWriter(w, kmsg)
 	}
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})))
+	consoleHandler := slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})
+	rh := fogapi.NewRemoteHandler(consoleHandler)
+	slog.SetDefault(slog.New(rh))
+	return rh
 }
 
 // halt shuts down or panics hard — called when a non-recoverable error occurs.

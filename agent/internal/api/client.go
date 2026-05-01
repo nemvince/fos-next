@@ -154,6 +154,12 @@ func (c *Client) Complete(ctx context.Context, req CompleteRequest) error {
 	return c.post(ctx, "/complete", req, nil, true)
 }
 
+// SendLogs forwards a batch of log entries to fog-next.
+// It uses a best-effort single attempt — a dropped batch is acceptable.
+func (c *Client) SendLogs(ctx context.Context, req sendLogsRequest) error {
+	return c.doPost(ctx, "/logs", req, nil, true)
+}
+
 // DownloadPart opens a streaming GET for a partition image part.
 // The caller is responsible for closing the returned ReadCloser.
 // rangeStart is the byte offset to resume from (0 for a fresh download).
